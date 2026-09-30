@@ -1,0 +1,20 @@
+# ============================================================================
+# == Mesa Vulkan drivers + NVIDIA GSP firmware (Zink on NVK)                ==
+# ============================================================================
+#
+# The OpenGL half of Mesa (libgl1-mesa-dri, mesa-libgallium, libvulkan1) is
+# already pulled in underneath this module by Xorg and Plasma.  What is
+# missing for NVIDIA cards on nouveau is:
+#
+#   mesa-vulkan-drivers       NVK (libvulkan_nouveau.so).  Mesa's loader only
+#                             picks Zink for nouveau when a Vulkan driver for
+#                             the card is present; otherwise it stays on the
+#                             old nouveau GL driver.
+#   firmware-nvidia-graphics  GSP-RM firmware.  Turing and newer need it for
+#                             NVK; Ada and Blackwell do not come up at all
+#                             without it.  firmware-linux-nonfree does NOT
+#                             depend on it, so 02-firmware never installs it.
+#
+# The `install` script refuses to build if Mesa is older than 25.
+mesa-vulkan-drivers
+firmware-nvidia-graphics +dp=debian

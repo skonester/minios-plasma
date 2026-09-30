@@ -1,0 +1,5 @@
+# Falkon, KDE's Qt WebEngine browser.  Qt WebEngine itself is already in the
+# image underneath this module (plasma-nm and plasma-widgets-addons depend on
+# it), so this adds only the browser.  Translations are bundled in the
+# package; there are no separate l10n packages.
+falkon

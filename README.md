@@ -37,16 +37,51 @@ MiniOS was created by:
 
 ## 🔀 About This Fork
 
-This fork builds MiniOS on Debian 14 (forky) with the KDE Plasma desktop and ships the Apx container-based package manager alongside it. It keeps everything that makes MiniOS what it is — a portable, live-bootable system that runs from a USB stick and remembers your changes — and pairs it with a full-featured desktop and a way to install software from other Linux distributions without touching the base system.
+This fork builds MiniOS on Debian 14 (forky) with KDE Plasma. Target: Standard edition, amd64, run from USB.
 
-What you get:
+As of the 2026-09-29 build:
 
-- **A current Debian base.** Built on Debian 14, so the kernel, drivers and applications are recent.
-- **KDE Plasma.** A complete, polished desktop with the MiniOS look, booting straight to the desktop as a live user.
-- **Apx.** Install packages from Debian, Fedora, Arch, Alpine and others in isolated containers; they show up as ordinary applications while the live system stays clean.
-- **MiniOS tooling.** The installer, module manager, store, kernel manager and the rest of the MiniOS utilities are all present.
+| Component | Version |
+|---|---|
+| Base | Debian 14 (forky) |
+| Kernel | 7.2 |
+| Desktop | KDE Plasma, X11 session |
+| Graphics | Mesa 26.1 |
+| Browser | Falkon 26.08 |
+| ISO size | 1.3 GB |
 
-Upstream MiniOS remains the reference project; this fork tracks it and only adds what is described above.
+Kernel and package versions follow forky, so later builds may be newer.
+
+Changes from upstream MiniOS:
+
+- **Browser.** Falkon replaces Firefox. Its built-in PDF viewer is on by default. The other desktops still use Firefox.
+- **NVIDIA.** On NVIDIA Turing (RTX 20 series) and newer, OpenGL runs on Zink over NVK, the open-source Vulkan driver. This works with the open-source nouveau driver only, not the proprietary one. The image includes NVIDIA's GSP firmware (version 570.144).
+- **Apx.** Vanilla OS's container package manager. It installs packages from other distributions (Fedora, Arch, Alpine and others) into containers, keeping them off the base system.
+- **MiniOS tools.** Everything except `minios-session-manager`, which depends on `dynfilefs`, and that needs `libfuse2`, which forky no longer ships.
+
+Modules in the ISO:
+
+| Module | Contents |
+|---|---|
+| `00-core` | Debian base system |
+| `01-kernel` | Kernel and modules |
+| `02-firmware` | Device firmware |
+| `03-gui-base` | Xorg and shared desktop components |
+| `04-plasma-desktop` | KDE Plasma and MiniOS tools |
+| `05-mesa` | Mesa Vulkan drivers and NVIDIA GSP firmware |
+| `06-apx` | Apx |
+| `07-falkon` | Falkon |
+
+To skip a module at boot, add `noload=` with its name to the boot options, for example `noload=falkon`.
+
+To check Zink on an NVIDIA card:
+
+```
+sudo apt install mesa-utils
+glxinfo -B | grep -i renderer    # should show: zink ... (NVK ...)
+```
+
+Upstream MiniOS remains the reference project; this fork tracks it.
 
 ## 🪟 Building on Windows with Debian WSL
 
@@ -91,5 +126,6 @@ The finished `.iso` appears in a `build-output` folder inside the repository. Wr
 **Good to know**
 
 - Building again after a change is faster: parts that have not changed are reused.
+- The build can stop on an error without reporting a failure. Make sure the last lines say `The image ... has been created`.
 - `wsl-build.sh clean` removes the whole build area inside Debian if you want to start fresh.
 - Do not run the build from inside a Windows folder in Debian directly; the helper script takes care of copying the files to where Debian can build them.

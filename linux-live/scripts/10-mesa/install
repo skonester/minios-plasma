@@ -1,0 +1,84 @@
+#!/bin/bash
+#
+# Mesa Vulkan module: NVK + GSP firmware so NVIDIA GPUs get Zink out of the box.
+#
+# Nothing has to be configured for Zink itself.  Since Mesa 25.1 the loader's
+# nouveau_zink_predicate() hands OpenGL to Zink on Turing and newer (chipset
+# >= 0x160) whenever the kernel exposes NOUVEAU_GETPARAM_HAS_VMA_TILEMODE,
+# which every kernel new enough for NVK does.  NOUVEAU_USE_ZINK=0/1 still
+# overrides that per process if a user needs to.
+#
+# The module is built for USB sticks, so dead weight is kept out of it with
+# dpkg path-exclude rules written *before* the packages are unpacked.  The
+# rules stay in the image, so an apt upgrade on a persistent system does not
+# bring the files back either.
+#
+#   GSP-RM 535.113.01   firmware-nvidia-graphics ships two GSP generations.
+#                       nouveau's firmware tables list 570.144 first for every
+#                       chip (and 570 is the only one Blackwell has), and
+#                       nvkm_firmware_load() only falls back to 535 when 570
+#                       fails to load -- so the 535 GSP images are never used.
+#                       Only the gsp-535 images themselves are dropped: the
+#                       package dedupes identical files, and on tu102/tu116
+#                       and ga100 bootloader-570.144.bin is a symlink to
+#                       bootloader-535.113.01.bin.
+#   asahi, freedreno,   Vulkan drivers for Apple Silicon, Qualcomm Adreno and
+#   gfxstream           the Android emulator.  None of that hardware exists
+#                       on an x86 machine.
+
+set -e          # exit on error
+set -o pipefail # exit on pipeline error
+set -u          # treat unset variable as error
+
+. /minioslib
+. /minios_build.conf
+
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+
+MESA_MIN_VERSION="25"
+
+mkdir -p /etc/dpkg/dpkg.cfg.d
+cat <<'EOF' >/etc/dpkg/dpkg.cfg.d/minios-mesa-excludes
+# Written by the MiniOS 10-mesa module; see its install script for why.
+path-exclude=/usr/lib/firmware/nvidia/*/gsp/gsp-535.113.01.bin
+path-exclude=/usr/lib/x86_64-linux-gnu/libvulkan_asahi.so
+path-exclude=/usr/lib/x86_64-linux-gnu/libvulkan_freedreno.so
+path-exclude=/usr/lib/x86_64-linux-gnu/libvulkan_gfxstream.so
+path-exclude=/usr/share/vulkan/icd.d/asahi_icd.*
+path-exclude=/usr/share/vulkan/icd.d/freedreno_icd.*
+path-exclude=/usr/share/vulkan/icd.d/gfxstream_vk_icd.*
+EOF
+
+if ! /condinapt -l "${SCRIPT_DIR}/packages.list" -c "${SCRIPT_DIR}/minios_build.conf" -m "${SCRIPT_DIR}/condinapt.map"; then
+    echo "Failed to install packages."
+    exit 1
+fi
+
+# Zink-on-NVK needs a Mesa that knows to prefer it.  Fail the build rather
+# than ship an image that silently falls back to the old nouveau GL driver.
+for MESA_PACKAGE in mesa-vulkan-drivers mesa-libgallium; do
+    MESA_VERSION="$(dpkg-query -W -f='${Version}' "${MESA_PACKAGE}" 2>/dev/null || true)"
+    if [ -z "${MESA_VERSION}" ]; then
+        echo "${MESA_PACKAGE} is not installed." >&2
+        exit 1
+    fi
+    if ! dpkg --compare-versions "${MESA_VERSION}" ge "${MESA_MIN_VERSION}"; then
+        echo "${MESA_PACKAGE} ${MESA_VERSION} is older than ${MESA_MIN_VERSION}; Zink on NVK needs Mesa >= ${MESA_MIN_VERSION}." >&2
+        exit 1
+    fi
+done
+
+DANGLING="$(find /usr/lib/firmware/nvidia -xtype l 2>/dev/null)"
+if [ -n "${DANGLING}" ]; then
+    echo "The GSP path-exclude left dangling firmware links:" >&2
+    echo "${DANGLING}" >&2
+    exit 1
+fi
+
+if [ ! -f /usr/share/vulkan/icd.d/nouveau_icd.x86_64.json ] && [ ! -f /usr/share/vulkan/icd.d/nouveau_icd.json ]; then
+    echo "mesa-vulkan-drivers does not provide the NVK (nouveau) Vulkan driver." >&2
+    exit 1
+fi
+
+echo "PACKAGE=\"mesa\"" >/.package
+echo "VERSION=\"$(dpkg-query -W -f='${Version}' mesa-vulkan-drivers | sed 's/:/-/g')\"" >>/.package

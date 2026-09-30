@@ -1,0 +1,66 @@
+#!/bin/bash
+#
+# Falkon browser module.  Replaces Firefox on the Plasma image: Qt WebEngine is
+# already present there, so Falkon costs ~15 MiB where firefox-esr costs ~260.
+#
+#   PDF viewer   Falkon can hand PDFs to Qt WebEngine's built-in viewer, but
+#                the setting (Web-Browser-Settings/intPDFViewer) defaults to
+#                off, and the image has no other PDF viewer.  Falkon keeps its
+#                settings per profile in ~/.config/falkon/profiles/<name>/
+#                settings.ini; on first start it creates profiles.ini and the
+#                default profile around whatever is already there, so a skel
+#                settings.ini carrying just this key survives first run.
+#   Defaults     The Plasma panel and Kickoff use preferred://browser, which
+#                resolves through the x-scheme-handler/http(s) defaults.
+#                Falkon's desktop file does not declare application/pdf, so
+#                the PDF association is also listed under Added Associations.
+
+set -e          # exit on error
+set -o pipefail # exit on pipeline error
+set -u          # treat unset variable as error
+
+. /minioslib
+. /minios_build.conf
+
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+PACKAGE="falkon"
+DESKTOP_FILE="org.kde.falkon.desktop"
+
+if ! /condinapt -l "${SCRIPT_DIR}/packages.list" -c "${SCRIPT_DIR}/minios_build.conf" -m "${SCRIPT_DIR}/condinapt.map"; then
+    echo "Failed to install packages."
+    exit 1
+fi
+
+mkdir -p /etc/skel/.config/falkon/profiles/default
+cat <<'EOF' >/etc/skel/.config/falkon/profiles/default/settings.ini
+[Web-Browser-Settings]
+allowPlugins=true
+intPDFViewer=true
+EOF
+
+# Add KEY=VALUE under [SECTION] of a mimeapps.list, creating either as needed
+# and replacing an existing entry for KEY in that section.
+set_mime_association() {
+    local FILE="$1" SECTION="$2" KEY="$3" VALUE="$4"
+    [ -f "${FILE}" ] || : >"${FILE}"
+    if ! grep -qxF "[${SECTION}]" "${FILE}"; then
+        [ -s "${FILE}" ] && echo >>"${FILE}"
+        echo "[${SECTION}]" >>"${FILE}"
+    fi
+    awk -v section="[${SECTION}]" -v key="${KEY}" -v value="${VALUE}" '
+        /^\[/ { if (in_section && !done) { print key "=" value; done = 1 } in_section = ($0 == section) }
+        in_section && index($0, key "=") == 1 { next }
+        { print }
+        END { if (in_section && !done) print key "=" value }
+    ' "${FILE}" >"${FILE}.tmp"
+    mv "${FILE}.tmp" "${FILE}"
+}
+
+MIMEAPPS=/usr/share/applications/mimeapps.list
+for MIME in text/html application/xhtml+xml x-scheme-handler/http x-scheme-handler/https application/pdf; do
+    set_mime_association "${MIMEAPPS}" "Default Applications" "${MIME}" "${DESKTOP_FILE};"
+done
+set_mime_association "${MIMEAPPS}" "Added Associations" "application/pdf" "${DESKTOP_FILE};"
+
+echo "PACKAGE=\"${PACKAGE}\"" >/.package
+echo "VERSION=\"$(dpkg-query -W -f='${Version}' "${PACKAGE}" | sed 's/:/-/g')\"" >>/.package

@@ -222,6 +222,30 @@ package_has() {
     find "${ROOT}" -path "${PATTERN}" -print -quit 2>/dev/null | grep -q .
 }
 
+# Debian's split kernel packages from forky on (linux-binary-*, linux-base-*)
+# ship vmlinuz, config and System.map as /usr/lib/modules/<release>/<name> and
+# leave copying them to /boot to kernel-install hooks.  Payloads are extracted
+# here without running maintainer scripts, so move them to the traditional
+# /boot/<name>-<release> paths inside the extracted payload.  Everything after
+# this -- classification, path lists, synthetic dpkg metadata, the runtime
+# kernel module layout and the ISO boot files -- then sees one layout, and the
+# kernel image is not carried twice in the kernel module.
+relocate_modules_dir_boot_files() {
+    local ROOT="$1"
+    local FILE NAME RELEASE
+
+    for FILE in "${ROOT}"/usr/lib/modules/*/vmlinuz "${ROOT}"/usr/lib/modules/*/config \
+        "${ROOT}"/usr/lib/modules/*/System.map; do
+        [ -f "${FILE}" ] && [ ! -L "${FILE}" ] || continue
+        NAME="${FILE##*/}"
+        RELEASE="${FILE%/*}"
+        RELEASE="${RELEASE##*/}"
+        [ ! -e "${ROOT}/boot/${NAME}-${RELEASE}" ] || fail "Kernel payload ships ${NAME} in both /boot and /usr/lib/modules"
+        mkdir -p "${ROOT}/boot"
+        mv "${FILE}" "${ROOT}/boot/${NAME}-${RELEASE}"
+    done
+}
+
 classify_package() {
     local NAME="$1"
     local ROOT="$2"
@@ -325,6 +349,7 @@ analyze_packages() {
         mkdir -p "${ROOT}" "${CONTROL}"
         dpkg-deb -x "${DEB}" "${ROOT}"
         dpkg-deb -e "${DEB}" "${CONTROL}"
+        relocate_modules_dir_boot_files "${ROOT}"
         NAME="$(dpkg-deb -f "${DEB}" Package)"
         VERSION="$(dpkg-deb -f "${DEB}" Version)"
         ARCH="$(dpkg-deb -f "${DEB}" Architecture)"
